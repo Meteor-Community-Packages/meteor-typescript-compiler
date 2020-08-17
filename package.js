@@ -8,7 +8,7 @@ Package.describe({
   name: "refapp:meteor-typescript-compiler",
   version: COMPILER_VERSION,
   summary: "A Typescript compiler plugin for Meteor",
-  git: "https://github.com/ref-app/meteor-typescript-compiler",
+  git: "https://github.com/Meteor-Community-Packages/meteor-typescript-compiler",
   documentation: "README.md",
 });
 
