@@ -193,6 +193,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
    * Invoked by the Meteor compiler framework
    */
   public setDiskCacheDirectory(path: string) {
+    super.setDiskCacheDirectory(path);
     this.cacheRoot = path;
   }
 

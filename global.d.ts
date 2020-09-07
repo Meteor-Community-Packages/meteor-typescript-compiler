@@ -16,5 +16,7 @@ declare global {
       babelOptions: any,
       cacheDeps: any
     ): boolean;
+
+    public setDiskCacheDirectory(path: string): void;
   }
 }
