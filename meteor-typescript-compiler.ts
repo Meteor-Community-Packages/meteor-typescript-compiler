@@ -182,9 +182,18 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
 
   private cache: CompilerCache | undefined = undefined;
 
+  private cacheRoot = ".meteor/local/.typescript-incremental";
+
   constructor() {
     super({});
     setTraceEnabled(!!process.env.METEOR_TYPESCRIPT_TRACE_ENABLED);
+  }
+
+  /**
+   * Invoked by the Meteor compiler framework
+   */
+  public setDiskCacheDirectory(path: string) {
+    this.cacheRoot = path;
   }
 
   writeDiagnosticMessage(diagnostics: ts.Diagnostic, message: string) {
@@ -247,13 +256,12 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
       throw new Error("Could not find a valid 'tsconfig.json'.");
     }
 
-    const cachePath = ".meteor/local/.typescript-incremental";
     const buildInfoFile = ts.sys.resolvePath(
-      `${cachePath}/buildfile.tsbuildinfo`
+      `${this.cacheRoot}/buildfile.tsbuildinfo`
     );
     if (!process.env.METEOR_TYPESCRIPT_CACHE_DISABLED) {
       this.cache = new CompilerCache(
-        ts.sys.resolvePath(`${cachePath}/v1cache`)
+        ts.sys.resolvePath(`${this.cacheRoot}/v1cache`)
       );
     }
     const config = ts.getParsedCommandLineOfConfigFile(
