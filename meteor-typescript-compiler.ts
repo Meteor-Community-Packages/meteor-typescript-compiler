@@ -184,7 +184,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
 
   constructor() {
     super({});
-    setTraceEnabled(!!process.env["TYPESCRIPT_TRACE_ENABLED"]);
+    setTraceEnabled(!!process.env.METEOR_TYPESCRIPT_TRACE_ENABLED);
   }
 
   writeDiagnosticMessage(diagnostics: ts.Diagnostic, message: string) {
@@ -251,7 +251,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     const buildInfoFile = ts.sys.resolvePath(
       `${cachePath}/buildfile.tsbuildinfo`
     );
-    if (!!process.env.TYPESCRIPT_CACHE) {
+    if (!process.env.METEOR_TYPESCRIPT_CACHE_DISABLED) {
       this.cache = new CompilerCache(
         ts.sys.resolvePath(`${cachePath}/v1cache`)
       );
