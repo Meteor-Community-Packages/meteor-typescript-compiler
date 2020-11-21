@@ -163,7 +163,7 @@ function getRelativeFileName(filename: string): string {
   return filename;
 }
 
-type BuilderProgramType = ts.EmitAndSemanticDiagnosticsBuilderProgram;
+type BuilderProgramType = ts.SemanticDiagnosticsBuilderProgram;
 
 type BuilderProgramOptions = Readonly<{
   program: BuilderProgramType;
@@ -213,6 +213,63 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     errorCount?: number
   ) {
     this.writeDiagnostics([diagnostic]);
+  }
+
+  prepareIncrementalProgram(
+    program: BuilderProgramType,
+    buildInfoFile: string
+  ) {
+    const diagnostics = [
+      ...program.getConfigFileParsingDiagnostics(),
+      ...program.getSyntacticDiagnostics(),
+      ...program.getOptionsDiagnostics(),
+      ...program.getGlobalDiagnostics(),
+      ...program.getSemanticDiagnostics(), // Get the diagnostics before emit to cache them in the buildInfo file.
+    ];
+
+    const writeIfBuildInfo = (
+      fileName: string,
+      data: string,
+      writeByteOrderMark: boolean | undefined
+    ): boolean => {
+      if (fileName === buildInfoFile) {
+        info(`Writing ${getRelativeFileName(buildInfoFile)}`);
+        ts.sys.writeFile(fileName, data, writeByteOrderMark);
+        return true;
+      }
+      return false;
+    };
+
+    /**
+     * "emit" without a sourcefile will process all changed files, including the buildinfo file
+     * so we need to write it out if it changed.
+     * Then we can also tell which files were recompiled and put the data into the cache.
+     */
+    const emitResult = program.emit(
+      undefined,
+      (fileName, data, writeByteOrderMark, onError, sourceFiles) => {
+        if (!writeIfBuildInfo(fileName, data, writeByteOrderMark)) {
+          if (sourceFiles && sourceFiles.length > 0) {
+            const relativeSourceFilePath = getRelativeFileName(
+              sourceFiles[0].fileName
+            );
+            if (fileName.match(/\.js$/)) {
+              info(`Compiling ${relativeSourceFilePath}`);
+              this.numCompiledFiles++;
+              this.addJavascriptToCache(relativeSourceFilePath, {
+                fileName,
+                source: data,
+              });
+            }
+            if (fileName.match(/\.map$/)) {
+              this.cache?.addSourceMap(relativeSourceFilePath, data);
+            }
+          }
+        }
+      }
+    );
+
+    this.writeDiagnostics(diagnostics);
   }
 
   createWatcher(directory: string): WatcherInstance {
@@ -277,24 +334,39 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
       configFileParsingDiagnostics,
       projectReferences
     ) => {
+      // info(
+      //   `buildinfo file: ${getRelativeFileName(
+      //     options.tsBuildInfoFile ?? "no buildinfo file"
+      //   )}`
+      // );
+      const hostWithIncremental: ts.CompilerHost = {
+        ...(host ?? {}),
+        ...ts.createIncrementalCompilerHost(options),
+      };
       const program = ts.createIncrementalProgram({
         rootNames,
         options,
         configFileParsingDiagnostics,
         projectReferences,
-        host,
-        createProgram: ts.createEmitAndSemanticDiagnosticsBuilderProgram,
+        //        host: hostWithIncremental,
+        //        createProgram: ts.createEmitAndSemanticDiagnosticsBuilderProgram,
       });
       return program;
     };
+    const watchOptionsToExtend: ts.WatchOptions = {};
     const watchHost = ts.createWatchCompilerHost(
       configPath,
       optionsToExtend,
       ts.sys,
       createProgram,
       (diagnostic) => this.writeDiagnostics([diagnostic]),
-      (...args) => this.reportWatchStatus(...args)
+      (...args) => this.reportWatchStatus(...args),
+      watchOptionsToExtend
     );
+    watchHost.afterProgramCreate = (program) => {
+      // The default implementation is to emit files to disk, which we absolutely do not want
+      this.prepareIncrementalProgram(program, buildInfoFile);
+    };
 
     const watch = ts.createWatchProgram(watchHost);
     return { buildInfoFile, watch };
@@ -390,58 +462,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
       program,
       buildInfoFile,
     } = this.getBuilderProgramForCurrentDirectory();
-    const diagnostics = [
-      ...program.getConfigFileParsingDiagnostics(),
-      ...program.getSyntacticDiagnostics(),
-      ...program.getOptionsDiagnostics(),
-      ...program.getGlobalDiagnostics(),
-      ...program.getSemanticDiagnostics(), // Get the diagnostics before emit to cache them in the buildInfo file.
-    ];
 
-    const writeIfBuildInfo = (
-      fileName: string,
-      data: string,
-      writeByteOrderMark: boolean | undefined
-    ): boolean => {
-      if (fileName === buildInfoFile) {
-        info(`Writing ${getRelativeFileName(buildInfoFile)}`);
-        ts.sys.writeFile(fileName, data, writeByteOrderMark);
-        return true;
-      }
-      return false;
-    };
-    info("Before program.emit");
-
-    /**
-     * "emit" without a sourcefile will process all changed files, including the buildinfo file
-     * so we need to write it out if it changed.
-     * Then we can also tell which files were recompiled and put the data into the cache.
-     */
-    const emitResult = program.emit(
-      undefined,
-      (fileName, data, writeByteOrderMark, onError, sourceFiles) => {
-        if (!writeIfBuildInfo(fileName, data, writeByteOrderMark)) {
-          if (sourceFiles && sourceFiles.length > 0) {
-            const relativeSourceFilePath = getRelativeFileName(
-              sourceFiles[0].fileName
-            );
-            if (fileName.match(/\.js$/)) {
-              info(`Compiling ${relativeSourceFilePath}`);
-              this.numCompiledFiles++;
-              this.addJavascriptToCache(relativeSourceFilePath, {
-                fileName,
-                source: data,
-              });
-            }
-            if (fileName.match(/\.map$/)) {
-              this.cache?.addSourceMap(relativeSourceFilePath, data);
-            }
-          }
-        }
-      }
-    );
-
-    this.writeDiagnostics(diagnostics);
     return program;
   }
 
@@ -621,11 +642,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
         );
       }
     }
-    const directory = ts.sys.getCurrentDirectory();
-    // if (this.cachedWatchers.has(directory)) {
-    //   info(`Releasing build program for ${directory}`);
-    //   this.cachedWatchers.delete(directory);
-    // }
+
     // Reset since this method gets called once for each resourceSlot
     this.clearStats();
   }
