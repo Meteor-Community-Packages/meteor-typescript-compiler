@@ -1,20 +1,15 @@
 {
   "lockfileVersion": 1,
   "dependencies": {
-    "@types/color-name": {
-      "version": "1.1.1",
-      "resolved": "https://registry.npmjs.org/@types/color-name/-/color-name-1.1.1.tgz",
-      "integrity": "sha512-rr+OQyAjxze7GgWrSaJwydHStIhHq2lvY3BOC2Mj7KnzI7XK0Uw1TOOdI9lDoajEbSWLiYgoo4f1R51erQfhPQ=="
-    },
     "@types/node": {
       "version": "14.0.4",
       "resolved": "https://registry.npmjs.org/@types/node/-/node-14.0.4.tgz",
       "integrity": "sha512-k3NqigXWRzQZVBDS5D1U70A5E8Qk4Kh+Ha/x4M8Bt9pF0X05eggfnC9+63Usc9Q928hRUIpIhTQaXsZwZBl4Ew=="
     },
     "ansi-styles": {
-      "version": "4.2.1",
-      "resolved": "https://registry.npmjs.org/ansi-styles/-/ansi-styles-4.2.1.tgz",
-      "integrity": "sha512-9VGjrMsG1vePxcSweQsN20KY/c4zN0h9fLjqAbwbPfahM3t+NL+M9HC8xeXG2I8pX5NoamTGNuomEUFI7fcUjA=="
+      "version": "4.3.0",
+      "resolved": "https://registry.npmjs.org/ansi-styles/-/ansi-styles-4.3.0.tgz",
+      "integrity": "sha512-zbB9rCJAT1rbjiVDb2hqKFHNYLxgtk8NURxZ3IZwD3F6NtxbXZQCnnSi1Lkx+IDohdPlFp222wVALIheZJQSEg=="
     },
     "chalk": {
       "version": "4.0.0",
@@ -42,9 +37,9 @@
       "integrity": "sha512-qpCAvRl9stuOHveKsn7HncJRvv501qIacKzQlO/+Lwxc9+0q2wLyv4Dfvt80/DPn2pqOBsJdDiogXGR9+OvwRw=="
     },
     "typescript": {
-      "version": "4.0.2",
-      "resolved": "https://registry.npmjs.org/typescript/-/typescript-4.0.2.tgz",
-      "integrity": "sha512-e4ERvRV2wb+rRZ/IQeb3jm2VxBsirQLpQhdxplZ2MEzGvDkkMmPglecnNDfSUBivMjP93vRbngYYDQqQ/78bcQ=="
+      "version": "4.1.2",
+      "resolved": "https://registry.npmjs.org/typescript/-/typescript-4.1.2.tgz",
+      "integrity": "sha512-thGloWsGH3SOxv1SoY7QojKi0tc+8FnOmiarEGMbd/lar7QOEd3hvlx3Fp5y6FlDUGl9L+pd4n2e+oToGMmhRQ=="
     }
   }
 }

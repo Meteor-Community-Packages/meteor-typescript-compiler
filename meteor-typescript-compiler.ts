@@ -562,4 +562,5 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
   }
 }
 
+// I haven’t figured out how to use a proper export here
 MeteorTypescriptCompiler = MeteorTypescriptCompilerImpl;
