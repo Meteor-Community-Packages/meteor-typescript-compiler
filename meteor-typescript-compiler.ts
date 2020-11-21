@@ -148,7 +148,7 @@ interface LocalEmitResult {
 
 function isBare(inputFile: MeteorCompiler.InputFile): boolean {
   const fileOptions = inputFile.getFileOptions();
-  return fileOptions && fileOptions.bare;
+  return !!fileOptions?.bare;
 }
 
 function calculateHash(source: string): string {
@@ -164,8 +164,8 @@ function getRelativeFileName(filename: string): string {
 }
 
 export class MeteorTypescriptCompilerImpl extends BabelCompiler {
-  private program: ts.EmitAndSemanticDiagnosticsBuilderProgram;
-  private diagnostics: ts.Diagnostic[];
+  private program: ts.BuilderProgram | undefined;
+  private diagnostics: ts.Diagnostic[] = [];
   private numEmittedFiles = 0;
   private numStoredFiles = 0;
   private numCompiledFiles = 0;
@@ -325,7 +325,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
       undefined,
       (fileName, data, writeByteOrderMark, onError, sourceFiles) => {
         if (!writeIfBuildInfo(fileName, data, writeByteOrderMark)) {
-          if (sourceFiles.length > 0) {
+          if (sourceFiles && sourceFiles.length > 0) {
             const relativeSourceFilePath = getRelativeFileName(
               sourceFiles[0].fileName
             );
@@ -359,10 +359,13 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
   }
 
   prepareSourceMap(
-    sourceMapJson: string,
+    sourceMapJson: string | undefined,
     inputFile: MeteorCompiler.InputFile,
     sourceFile: ts.SourceFile
-  ): Object {
+  ): Object | undefined {
+    if (!sourceMapJson) {
+      return undefined;
+    }
     const sourceMap: any = JSON.parse(sourceMapJson);
     sourceMap.sourcesContent = [sourceFile.text];
     sourceMap.sources = [inputFile.getPathInPackage()];
@@ -374,20 +377,25 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     sourceFile: ts.SourceFile
   ): LocalEmitResult | undefined {
     this.numEmittedFiles++;
-    let result: LocalEmitResult | undefined = undefined;
+    let emitResults: LocalEmitResult[] = [];
     let sourceMapJson: string | undefined = undefined;
+    if (!this.program) {
+      return;
+    }
+
     trace(`Emitting Javascript for ${inputFile.getPathInPackage()}`);
 
-    this.program.emit(sourceFile, (fileName, data) => {
+    this.program.emit(sourceFile, function (fileName, data) {
       if (fileName.match(/\.map$/)) {
         sourceMapJson = data;
       } else {
-        result = { data, fileName };
+        emitResults.push({ data, fileName });
       }
     });
-    if (!result) {
-      return result;
+    if (emitResults.length === 0) {
+      return undefined;
     }
+    const result = emitResults[0];
     const sourcePath = inputFile.getPathInPackage();
     this.cache?.addJavascript(sourcePath, {
       fileName: result.fileName,
@@ -439,6 +447,9 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
   }
 
   emitResultFor(inputFile: MeteorCompiler.InputFile) {
+    if (!this.program) {
+      return;
+    }
     const inputFilePath = inputFile.getPathInPackage();
     const sourceFile =
       this.program.getSourceFile(inputFilePath) ||
@@ -457,16 +468,18 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
         const emitResult = this.getOutputForSource(inputFile, sourceFile);
         if (!emitResult) {
           error(`Nothing emitted for ${inputFilePath}`);
-          return;
+          return {};
         }
         const { data, fileName, sourceMap } = emitResult;
         // To get Babel processing, we must invoke it ourselves via the
         // inherited BabelCompiler method processOneFileForTarget
         // To get the source map injected we override inferExtraBabelOptions
-        this.withSourceMap = {
-          sourceMap,
-          pathInPackage: inputFilePath,
-        };
+        if (sourceMap) {
+          this.withSourceMap = {
+            sourceMap,
+            pathInPackage: inputFilePath,
+          };
+        }
         const jsData = this.processOneFileForTarget(inputFile, data);
         // Use the same hash as in the deferred data
         return {
