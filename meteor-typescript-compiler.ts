@@ -32,6 +32,11 @@ export function trace(msg: string) {
   }
 }
 
+function getCallStack(depth: number): string {
+  const parts = (new Error().stack ?? "").split("\n");
+  return "\n" + parts.slice(2, depth + 2).join("\n");
+}
+
 /**
  * compiler-cache (could not figure out how to load from separate file/module)
  */
@@ -163,7 +168,7 @@ function getRelativeFileName(filename: string): string {
   return filename;
 }
 
-type BuilderProgramType = ts.SemanticDiagnosticsBuilderProgram;
+type BuilderProgramType = ts.EmitAndSemanticDiagnosticsBuilderProgram;
 
 type BuilderProgramOptions = Readonly<{
   program: BuilderProgramType;
@@ -329,31 +334,53 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     const createProgram: ts.CreateProgram<BuilderProgramType> = (
       rootNames = [],
       options = {},
-      host,
+      providedHost,
       oldProgram,
       configFileParsingDiagnostics,
       projectReferences
     ) => {
-      // info(
-      //   `buildinfo file: ${getRelativeFileName(
-      //     options.tsBuildInfoFile ?? "no buildinfo file"
-      //   )}`
-      // );
-      const hostWithIncremental: ts.CompilerHost = {
-        ...(host ?? {}),
-        ...ts.createIncrementalCompilerHost(options),
+      // if (oldProgram) {
+      //   info(`oldProgram provided to createProgram`);
+      // }
+
+      const innerCreateProgram: ts.CreateProgram<BuilderProgramType> = (
+        ...args
+      ) => {
+        // const innerOldProgram = args[3];
+        // if (innerOldProgram) {
+        //   info(`oldProgram provided to innerCreateProgram`);
+        // }
+        return ts.createEmitAndSemanticDiagnosticsBuilderProgram(...args);
       };
+
+      const standardHost = ts.createIncrementalCompilerHost(options);
+      const host: ts.CompilerHost = {
+        ...standardHost,
+        readFile: (fileName) => {
+          // if (fileName.includes("buildinfo")) {
+          //   info(
+          //     `Reading buildinfo file ${getRelativeFileName(
+          //       fileName
+          //     )} from ${getCallStack(4)}`
+          //   );
+          // }
+          return standardHost.readFile(fileName);
+        },
+      };
+      info(`creating - createIncrementalProgram`);
       const program = ts.createIncrementalProgram({
         rootNames,
         options,
         configFileParsingDiagnostics,
         projectReferences,
-        //        host: hostWithIncremental,
-        //        createProgram: ts.createEmitAndSemanticDiagnosticsBuilderProgram,
+        host,
+        createProgram: innerCreateProgram,
       });
+
       return program;
     };
     const watchOptionsToExtend: ts.WatchOptions = {};
+    info(`createWatchCompilerHost`);
     const watchHost = ts.createWatchCompilerHost(
       configPath,
       optionsToExtend,
@@ -364,6 +391,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
       watchOptionsToExtend
     );
     watchHost.afterProgramCreate = (program) => {
+      info(`afterProgramCreate`);
       // The default implementation is to emit files to disk, which we absolutely do not want
       this.prepareIncrementalProgram(program, buildInfoFile);
     };
