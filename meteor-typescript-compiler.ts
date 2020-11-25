@@ -75,53 +75,62 @@ function tryParse<T>(s: string): T | undefined {
 }
 
 /**
- * Caches output from typescript on disk
+ * Stores output from typescript on disk
  */
 export class CompilerCache {
-  constructor(private cacheRoot: string) {}
+  constructor(public cachedFilesRoot: string) {}
 
   private getKey(sourceFilePath: string) {
-    const result = calculateHash(sourceFilePath);
+    // Remove extension (.ts, .tsx)
+    const parts = sourceFilePath.split(".");
+    const result = parts.slice(0, parts.length - 1).join(".");
     return result;
   }
 
-  private getHashContentPath(sourceFilePath: string, type: "js" | "sourceMap") {
+  private getContentPath(sourceFilePath: string, type: "js" | "sourceMap") {
     const key = this.getKey(sourceFilePath);
-    const result = `${this.cacheRoot}/${type}/${key}.json`;
+    const extension = type === "sourceMap" ? "js.map" : "js";
+    const result = `${this.cachedFilesRoot}/${key}.${extension}`;
     return result;
-  }
-
-  private writeContent(sourceFilePath: string, content: CacheContent) {
-    const path = this.getHashContentPath(sourceFilePath, content.type);
-    const container: CacheContainer = {
-      sourceFilePath,
-      content,
-    };
-    const data = JSON.stringify(container);
-    ts.sys.writeFile(path, data);
   }
 
   private readContent(
     sourceFilePath: string,
     type: "js" | "sourceMap"
   ): CacheContent | undefined {
-    const path = this.getHashContentPath(sourceFilePath, type);
+    const path = this.getContentPath(sourceFilePath, type);
     if (ts.sys.fileExists(path)) {
       const fileContents = ts.sys.readFile(path);
-      const container = fileContents
-        ? tryParse<CacheContainer>(fileContents)
-        : undefined;
-      return container?.content;
+      if (!fileContents) {
+        return undefined;
+      }
+      if (type === "js") {
+        const filePath = this.getKey(sourceFilePath);
+        const result: JsCacheContent = {
+          type,
+          content: {
+            fileName: `${filePath}.js`,
+            source: fileContents,
+          },
+        };
+        return result;
+      } else {
+        return { type, content: fileContents };
+      }
     }
+    error(`did not find ${path}`);
+
     return undefined;
   }
 
-  public addJavascript(sourceFilePath: string, data: JavascriptData) {
-    this.writeContent(sourceFilePath, { type: "js", content: data });
+  public writeEmittedFile(
+    path: string,
+    data: string,
+    writeByteOrderMark: boolean
+  ) {
+    ts.sys.writeFile(path, data, writeByteOrderMark);
   }
-  public addSourceMap(sourceFilePath: string, data: string) {
-    this.writeContent(sourceFilePath, { type: "sourceMap", content: data });
-  }
+
   public get(sourceFilePath: string): CacheData | undefined {
     const jsData = this.getJavascript(sourceFilePath);
     if (!jsData) {
@@ -184,6 +193,7 @@ type WatcherInstance = Readonly<{
    * Path to buildinfo file
    */
   buildInfoFile: string;
+  cache: CompilerCache;
 }>;
 
 export class MeteorTypescriptCompilerImpl extends BabelCompiler {
@@ -192,7 +202,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
   private numStoredFiles = 0;
   private numCompiledFiles = 0;
   private numFilesFromCache = 0;
-  private numFilesToCache = 0;
+  private numFilesWritten = 0;
 
   /**
    * Used to inject the source map into the babel compilation
@@ -201,8 +211,6 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
   private withSourceMap:
     | { sourceMap: MeteorCompiler.SourceMap; pathInPackage: string }
     | undefined = undefined;
-
-  private cache: CompilerCache | undefined = undefined;
 
   private cacheRoot = ".meteor/local/.typescript-incremental";
 
@@ -220,8 +228,9 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     this.writeDiagnostics([diagnostic]);
   }
 
-  prepareIncrementalProgram(
+  emitAllAffectedFiles(
     program: BuilderProgramType,
+    cache: CompilerCache,
     buildInfoFile: string
   ) {
     const diagnostics = [
@@ -235,11 +244,11 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     const writeIfBuildInfo = (
       fileName: string,
       data: string,
-      writeByteOrderMark: boolean | undefined
+      writeByteOrderMark: boolean
     ): boolean => {
       if (fileName === buildInfoFile) {
         info(`Writing ${getRelativeFileName(buildInfoFile)}`);
-        ts.sys.writeFile(fileName, data, writeByteOrderMark);
+        cache.writeEmittedFile(fileName, data, writeByteOrderMark);
         return true;
       }
       return false;
@@ -261,13 +270,15 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
             if (fileName.match(/\.js$/)) {
               info(`Compiling ${relativeSourceFilePath}`);
               this.numCompiledFiles++;
-              this.addJavascriptToCache(relativeSourceFilePath, {
+              this.addJavascriptToCache(
                 fileName,
-                source: data,
-              });
+                data,
+                writeByteOrderMark,
+                cache
+              );
             }
             if (fileName.match(/\.map$/)) {
-              this.cache?.addSourceMap(relativeSourceFilePath, data);
+              cache.writeEmittedFile(fileName, data, writeByteOrderMark);
             }
           }
         }
@@ -289,119 +300,33 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
       throw new Error("Could not find a valid 'tsconfig.json'.");
     }
 
-    const buildInfoFile = ts.sys.resolvePath(
-      `${this.cacheRoot}/buildfile.tsbuildinfo`
-    );
-    if (!process.env.METEOR_TYPESCRIPT_CACHE_DISABLED) {
-      this.cache = new CompilerCache(
-        ts.sys.resolvePath(`${this.cacheRoot}/v1cache`)
-      );
-    }
+    const rootOutDir = ts.sys.resolvePath(`${this.cacheRoot}/v2cache`);
+    const outDir = `${rootOutDir}/out`;
+    const buildInfoFile = `${rootOutDir}/buildfile.tsbuildinfo`;
+    const cache = new CompilerCache(outDir);
     const optionsToExtend: ts.CompilerOptions = {
       incremental: true,
       tsBuildInfoFile: buildInfoFile,
+      outDir,
       noEmit: false,
       sourceMap: true,
     };
 
-    // const config = ts.getParsedCommandLineOfConfigFile(
-    //   configPath,
-    //   optionsToExtend,
-    //   /*host*/ {
-    //     ...ts.sys,
-    //     onUnRecoverableConfigFileDiagnostic: (d) =>
-    //       error(ts.flattenDiagnosticMessageText(d.messageText, "\n")),
-    //   }
-    // );
-    // if (!config) {
-    //   throw new Error("Could not parse 'tsconfig.json'.");
-    // }
-
-    // config.fileNames = this.filterSourceFilenames(config.fileNames);
-
-    // // Too much information to handle for large projects…
-    // // trace("config.fileNames:\n" + config.fileNames.join("\n"));
-
-    // const program = ts.createIncrementalProgram({
-    //   rootNames: config.fileNames,
-    //   options: config.options,
-    //   configFileParsingDiagnostics: ts.getConfigFileParsingDiagnostics(config),
-    //   projectReferences: config.projectReferences,
-    //   // createProgram can be passed in here to choose strategy for incremental compiler just like when creating incremental watcher program.
-    //   // Default is ts.createSemanticDiagnosticsBuilderProgram
-    // });
-
-    const createProgram: ts.CreateProgram<BuilderProgramType> = (
-      rootNames = [],
-      options = {},
-      providedHost,
-      oldProgram,
-      configFileParsingDiagnostics,
-      projectReferences
-    ) => {
-      // if (oldProgram) {
-      //   info(`oldProgram provided to createProgram`);
-      // }
-
-      const innerCreateProgram: ts.CreateProgram<BuilderProgramType> = (
-        ...args
-      ) => {
-        // const innerOldProgram = args[3];
-        // if (innerOldProgram) {
-        //   info(`oldProgram provided to innerCreateProgram`);
-        // }
-        return ts.createEmitAndSemanticDiagnosticsBuilderProgram(...args);
-      };
-
-      const standardHost = ts.createIncrementalCompilerHost(options);
-      const host: ts.CompilerHost = {
-        ...standardHost,
-        readFile: (fileName) => {
-          // if (fileName.includes("buildinfo")) {
-          //   info(
-          //     `Reading buildinfo file ${getRelativeFileName(
-          //       fileName
-          //     )} from ${getCallStack(4)}`
-          //   );
-          // }
-          return standardHost.readFile(fileName);
-        },
-      };
-      info(`creating - createIncrementalProgram`);
-      const program = ts.createIncrementalProgram({
-        rootNames,
-        options,
-        configFileParsingDiagnostics,
-        projectReferences,
-        host,
-        createProgram: innerCreateProgram,
-      });
-
-      return program;
-    };
-    const watchOptionsToExtend: ts.WatchOptions = {};
-    info(`createWatchCompilerHost`);
     const watchHost = ts.createWatchCompilerHost(
       configPath,
       optionsToExtend,
       ts.sys,
-      createProgram,
+      ts.createEmitAndSemanticDiagnosticsBuilderProgram,
       (diagnostic) => this.writeDiagnostics([diagnostic]),
-      (...args) => this.reportWatchStatus(...args),
-      watchOptionsToExtend
+      (...args) => this.reportWatchStatus(...args)
     );
+
     watchHost.afterProgramCreate = (program) => {
-      info(`afterProgramCreate`);
-      // The default implementation is to emit files to disk, which we absolutely do not want
-      this.prepareIncrementalProgram(program, buildInfoFile);
+      this.emitAllAffectedFiles(program, cache, buildInfoFile);
     };
 
     const watch = ts.createWatchProgram(watchHost);
-    return { buildInfoFile, watch };
-  }
-
-  getBuilderProgramForCurrentDirectory() {
-    return this.getBuilderProgram(ts.sys.getCurrentDirectory());
+    return { buildInfoFile, watch, cache };
   }
 
   programFromWatcher({
@@ -417,14 +342,14 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
   /**
    * Gets from cache or creates a new program
    */
-  getBuilderProgram(directory: string): BuilderProgramOptions {
+  getWatcherFor(directory: string): WatcherInstance {
     const foundInCache = this.cachedWatchers.get(directory);
     if (foundInCache) {
-      return this.programFromWatcher(foundInCache);
+      return foundInCache;
     }
     const newEntry = this.createWatcher(directory);
     this.cachedWatchers.set(directory, newEntry);
-    return this.programFromWatcher(newEntry);
+    return newEntry;
   }
 
   /**
@@ -485,23 +410,14 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     return sourceFiles;
   }
 
-  startIncrementalCompilation() {
-    const {
-      program,
-      buildInfoFile,
-    } = this.getBuilderProgramForCurrentDirectory();
-
-    return program;
-  }
-
-  /**
-   * Adds if enabled
-   */
-  addJavascriptToCache(sourceFilePath: string, data: JavascriptData) {
-    if (this.cache) {
-      this.numFilesToCache++;
-      this.cache.addJavascript(sourceFilePath, data);
-    }
+  addJavascriptToCache(
+    targetPath: string,
+    data: string,
+    writeByteOrderMark: boolean,
+    cache: CompilerCache
+  ) {
+    this.numFilesWritten++;
+    cache.writeEmittedFile(targetPath, data, writeByteOrderMark);
   }
 
   prepareSourceMap(
@@ -514,71 +430,71 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     }
     const sourceMap: any = JSON.parse(sourceMapJson);
     sourceMap.sourcesContent = [sourceFile.text];
-    sourceMap.sources = [inputFile.getPathInPackage()];
+    const sourcePath = inputFile.getPathInPackage();
+    sourceMap.sources = [sourcePath];
     return sourceMap;
+  }
+
+  emitResultFromCacheData(
+    cacheData: CacheData,
+    inputFile: MeteorCompiler.InputFile,
+    sourceFile: ts.SourceFile
+  ): LocalEmitResult {
+    const {
+      sourceMapJson,
+      javascript: { fileName, source },
+    } = cacheData;
+    const sourceMap = this.prepareSourceMap(
+      sourceMapJson,
+      inputFile,
+      sourceFile
+    );
+    return { data: source, sourceMap, fileName };
   }
 
   emitForSource(
     inputFile: MeteorCompiler.InputFile,
     sourceFile: ts.SourceFile,
-    program: BuilderProgramType
+    program: BuilderProgramType,
+    cache: CompilerCache
   ): LocalEmitResult | undefined {
     this.numEmittedFiles++;
 
-    let emitResults: LocalEmitResult[] = [];
-    let sourceMapJsonResults: string[] = [];
-
     trace(`Emitting Javascript for ${inputFile.getPathInPackage()}`);
-
-    program.emit(sourceFile, function (fileName, data) {
-      if (fileName.match(/\.map$/)) {
-        sourceMapJsonResults.push(data);
-      } else {
-        emitResults.push({ data, fileName });
-      }
+    program.emit(sourceFile, function (fileName, data, writeByteOrderMark) {
+      cache.writeEmittedFile(fileName, data, writeByteOrderMark);
     });
-    if (emitResults.length === 0) {
+
+    const sourcePath = inputFile.getPathInPackage();
+    const compiledResult = cache.get(sourcePath);
+    if (!compiledResult) {
       return undefined;
     }
-    const result = emitResults.pop();
-    const sourceMapJson = sourceMapJsonResults.pop();
-    if (!result) {
-      return;
-    }
-    const sourcePath = inputFile.getPathInPackage();
-    this.cache?.addJavascript(sourcePath, {
-      fileName: result.fileName,
-      source: result.data,
-    });
-    const sourceMap = sourceMapJson
-      ? this.prepareSourceMap(sourceMapJson, inputFile, sourceFile)
-      : undefined;
-    if (sourceMapJson) {
-      this.cache?.addSourceMap(sourcePath, sourceMapJson);
-    }
-    return { ...result, sourceMap };
+    const result = this.emitResultFromCacheData(
+      compiledResult,
+      inputFile,
+      sourceFile
+    );
+    return result;
   }
 
   getOutputForSource(
     inputFile: MeteorCompiler.InputFile,
     sourceFile: ts.SourceFile,
-    program: BuilderProgramType
+    program: BuilderProgramType,
+    cache: CompilerCache
   ): LocalEmitResult | undefined {
-    const fromCache = this.cache?.get(inputFile.getPathInPackage());
+    const fromCache = cache.get(inputFile.getPathInPackage());
     if (fromCache) {
-      const {
-        sourceMapJson,
-        javascript: { fileName, source },
-      } = fromCache;
-      const sourceMap = this.prepareSourceMap(
-        sourceMapJson,
+      const result = this.emitResultFromCacheData(
+        fromCache,
         inputFile,
         sourceFile
       );
       this.numFilesFromCache++;
-      return { data: source, sourceMap, fileName };
+      return result;
     }
-    return this.emitForSource(inputFile, sourceFile, program);
+    return this.emitForSource(inputFile, sourceFile, program, cache);
   }
 
   public inferExtraBabelOptions(
@@ -598,7 +514,8 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
 
   emitResultFor(
     inputFile: MeteorCompiler.InputFile,
-    program: BuilderProgramType
+    program: BuilderProgramType,
+    cache: CompilerCache
   ) {
     const inputFilePath = inputFile.getPathInPackage();
     const sourceFile =
@@ -618,7 +535,8 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
         const emitResult = this.getOutputForSource(
           inputFile,
           sourceFile,
-          program
+          program,
+          cache
         );
         if (!emitResult) {
           error(`Nothing emitted for ${inputFilePath}`);
@@ -649,7 +567,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
   clearStats() {
     this.numEmittedFiles = 0;
     this.numFilesFromCache = 0;
-    this.numFilesToCache = 0;
+    this.numFilesWritten = 0;
     this.numStoredFiles = 0;
     this.numCompiledFiles = 0;
   }
@@ -658,13 +576,11 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
   // compilation has finished. (bundler.js)
   afterLink() {
     if (this.numStoredFiles) {
-      const emitCacheInfo = this.cache
-        ? `${this.numFilesToCache} updated emitted files stored in disk cache`
-        : `${this.numEmittedFiles} files emitted`;
+      const emitCacheInfo = `${this.numFilesWritten} updated emitted files stored on disk`;
       info(
         `Typescript summary: ${emitCacheInfo}, ${this.numStoredFiles} transpiled files sent on for bundling`
       );
-      if (this.cache && this.numEmittedFiles > 0) {
+      if (this.numEmittedFiles > 0) {
         warn(
           `${this.numEmittedFiles} files emitted ad-hoc (cache inconsistency)`
         );
@@ -689,7 +605,11 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
       }`
     );
 
-    const program = this.startIncrementalCompilation();
+    const { watch, buildInfoFile, cache } = this.getWatcherFor(
+      ts.sys.getCurrentDirectory()
+    );
+    // This both produces all dirty files and provides us an instance to emit ad-hoc in case a file went missing
+    const program = watch.getProgram();
 
     const isCompilableFile = (f: MeteorCompiler.InputFile) => {
       const fileName = f.getBasename();
@@ -705,7 +625,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     };
     const compilableFiles = inputFiles.filter(isCompilableFile);
     for (const inputFile of compilableFiles) {
-      this.emitResultFor(inputFile, program);
+      this.emitResultFor(inputFile, program, cache);
     }
     const endTime = Date.now();
     const delta = endTime - startTime;
