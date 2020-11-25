@@ -1,7 +1,7 @@
 import * as ts from "typescript";
 import * as crypto from "crypto";
 import { bold, dim, reset } from "chalk";
-import { emitWarning } from "process";
+import { emit, emitWarning } from "process";
 
 /**
  * compiler-console (could not figure out how to load from separate file/module)
@@ -35,6 +35,13 @@ export function trace(msg: string) {
 function getCallStack(depth: number): string {
   const parts = (new Error().stack ?? "").split("\n");
   return "\n" + parts.slice(2, depth + 2).join("\n");
+}
+
+/**
+ * Returns rounded to seconds with one decimal
+ */
+function msToSec(milliseconds: number) {
+  return Math.round(milliseconds / 100) / 10;
 }
 
 /**
@@ -203,6 +210,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
   private numCompiledFiles = 0;
   private numFilesFromCache = 0;
   private numFilesWritten = 0;
+  private processStartTime = 0;
 
   /**
    * Used to inject the source map into the babel compilation
@@ -221,9 +229,9 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
 
   reportWatchStatus(
     diagnostic: ts.Diagnostic,
-    newLine: string,
-    options: ts.CompilerOptions,
-    errorCount?: number
+    _newLine: string,
+    _options: ts.CompilerOptions,
+    _errorCount?: number
   ) {
     this.writeDiagnostics([diagnostic]);
   }
@@ -233,6 +241,9 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     cache: CompilerCache,
     buildInfoFile: string
   ) {
+    const startTime = Date.now();
+    this.clearStats();
+
     const diagnostics = [
       ...program.getConfigFileParsingDiagnostics(),
       ...program.getSyntacticDiagnostics(),
@@ -286,6 +297,14 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     );
 
     this.writeDiagnostics(diagnostics);
+    this.writeDiagnostics(emitResult.diagnostics);
+    const endTime = Date.now();
+    const delta = endTime - startTime;
+    info(
+      `Compilation finished in ${msToSec(delta)} seconds. ${
+        this.numCompiledFiles
+      } files were (re)compiled.`
+    );
   }
 
   createWatcher(directory: string): WatcherInstance {
@@ -300,6 +319,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
       throw new Error("Could not find a valid 'tsconfig.json'.");
     }
 
+    // Important to make these paths absolute, see https://github.com/microsoft/TypeScript/issues/41690
     const rootOutDir = ts.sys.resolvePath(`${this.cacheRoot}/v2cache`);
     const outDir = `${rootOutDir}/out`;
     const buildInfoFile = `${rootOutDir}/buildfile.tsbuildinfo`;
@@ -360,7 +380,11 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     this.cacheRoot = path;
   }
 
-  writeDiagnosticMessage(diagnostics: ts.Diagnostic, message: string) {
+  writeDiagnosticMessage(diagnostics: ts.Diagnostic, customMessage?: string) {
+    const message =
+      customMessage ||
+      ts.flattenDiagnosticMessageText(diagnostics.messageText, ts.sys.newLine);
+
     switch (diagnostics.category) {
       case ts.DiagnosticCategory.Error:
         return error(message);
@@ -371,7 +395,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     }
   }
 
-  writeDiagnostics(diagnostics: ts.Diagnostic[]) {
+  writeDiagnostics(diagnostics: ReadonlyArray<ts.Diagnostic>) {
     diagnostics.forEach((diagnostic) => {
       if (diagnostic.file) {
         let { line, character } = diagnostic.file.getLineAndCharacterOfPosition(
@@ -388,10 +412,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
           }): ${message}`
         );
       } else {
-        this.writeDiagnosticMessage(
-          diagnostic,
-          `${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`
-        );
+        this.writeDiagnosticMessage(diagnostic);
       }
     });
   }
@@ -570,15 +591,19 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     this.numFilesWritten = 0;
     this.numStoredFiles = 0;
     this.numCompiledFiles = 0;
+    this.processStartTime = 0;
   }
 
   // Called by the compiler plugins system after all linking and lazy
   // compilation has finished. (bundler.js)
   afterLink() {
-    if (this.numStoredFiles) {
-      const emitCacheInfo = `${this.numFilesWritten} updated emitted files stored on disk`;
+    if (this.numStoredFiles > 0) {
+      const endTime = Date.now();
+      const delta = endTime - this.processStartTime;
       info(
-        `Typescript summary: ${emitCacheInfo}, ${this.numStoredFiles} transpiled files sent on for bundling`
+        `Typescript summary: ${msToSec(delta)} seconds for sending ${
+          this.numStoredFiles
+        } transpiled files on for bundling`
       );
       if (this.numEmittedFiles > 0) {
         warn(
@@ -595,12 +620,10 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     if (inputFiles.length === 0) {
       return;
     }
-    this.clearStats();
 
     const firstInput = inputFiles[0];
-    const startTime = Date.now();
     info(
-      `Typescript compilation for ${firstInput.getArch()} using Typescript ${
+      `Typescript processing requested for ${firstInput.getArch()} using Typescript ${
         ts.version
       }`
     );
@@ -610,6 +633,9 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     );
     // This both produces all dirty files and provides us an instance to emit ad-hoc in case a file went missing
     const program = watch.getProgram();
+
+    this.clearStats();
+    this.processStartTime = Date.now();
 
     const isCompilableFile = (f: MeteorCompiler.InputFile) => {
       const fileName = f.getBasename();
@@ -627,13 +653,6 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     for (const inputFile of compilableFiles) {
       this.emitResultFor(inputFile, program, cache);
     }
-    const endTime = Date.now();
-    const delta = endTime - startTime;
-    info(
-      `Compilation finished in ${Math.round(delta / 100) / 10} seconds. ${
-        compilableFiles.length
-      } input files, ${this.numCompiledFiles} files compiled`
-    );
   }
 }
 
