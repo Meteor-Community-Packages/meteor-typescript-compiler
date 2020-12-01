@@ -103,6 +103,15 @@ declare namespace MeteorCompiler {
     getFileOptions(): FileOptions;
 
     /**
+     * @summary Returns the root directory of the source files.
+     * Throws an error if lenient is false and there is
+     * no root directory
+     * @memberof InputFile
+     * @returns {String}
+     */
+    getSourceRoot(lenient: boolean): string | undefined;
+
+    /**
      * @summary Call this method to raise a compilation or linting error for the
      * file.
      * @param {Object} options

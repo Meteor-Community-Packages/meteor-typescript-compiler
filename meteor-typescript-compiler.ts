@@ -172,14 +172,9 @@ function isBare(inputFile: MeteorCompiler.InputFile): boolean {
   return !!fileOptions?.bare;
 }
 
-function calculateHash(source: string): string {
-  return crypto.createHash("SHA1").update(source).digest("hex");
-}
-
-function getRelativeFileName(filename: string): string {
-  const curDir = ts.sys.getCurrentDirectory();
-  if (filename.startsWith(curDir)) {
-    return filename.substring(curDir.length + 1);
+function getRelativeFileName(filename: string, sourceRoot: string): string {
+  if (sourceRoot && filename.startsWith(sourceRoot)) {
+    return filename.substring(sourceRoot.length + 1);
   }
   return filename;
 }
@@ -233,13 +228,14 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     _options: ts.CompilerOptions,
     _errorCount?: number
   ) {
-    this.writeDiagnostics([diagnostic]);
+    this.writeDiagnostics([diagnostic], undefined);
   }
 
   emitAllAffectedFiles(
     program: BuilderProgramType,
     cache: CompilerCache,
-    buildInfoFile: string
+    buildInfoFile: string,
+    sourceRoot: string
   ) {
     const startTime = Date.now();
     this.clearStats();
@@ -258,7 +254,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
       writeByteOrderMark: boolean
     ): boolean => {
       if (fileName === buildInfoFile) {
-        info(`Writing ${getRelativeFileName(buildInfoFile)}`);
+        info(`Writing ${getRelativeFileName(buildInfoFile, sourceRoot)}`);
         cache.writeEmittedFile(fileName, data, writeByteOrderMark);
         return true;
       }
@@ -276,7 +272,8 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
         if (!writeIfBuildInfo(fileName, data, writeByteOrderMark)) {
           if (sourceFiles && sourceFiles.length > 0) {
             const relativeSourceFilePath = getRelativeFileName(
-              sourceFiles[0].fileName
+              sourceFiles[0].fileName,
+              sourceRoot
             );
             if (fileName.match(/\.js$/)) {
               info(`Compiling ${relativeSourceFilePath}`);
@@ -296,8 +293,8 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
       }
     );
 
-    this.writeDiagnostics(diagnostics);
-    this.writeDiagnostics(emitResult.diagnostics);
+    this.writeDiagnostics(diagnostics, sourceRoot);
+    this.writeDiagnostics(emitResult.diagnostics, sourceRoot);
     const endTime = Date.now();
     const delta = endTime - startTime;
     info(
@@ -307,8 +304,8 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     );
   }
 
-  createWatcher(directory: string): WatcherInstance {
-    info(`Creating new Typescript watcher for ${directory}`);
+  createWatcher(sourceRoot: string): WatcherInstance {
+    info(`Creating new Typescript watcher for ${sourceRoot}`);
 
     const configPath = ts.findConfigFile(
       /*searchPath*/ "./",
@@ -337,12 +334,12 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
       optionsToExtend,
       ts.sys,
       ts.createEmitAndSemanticDiagnosticsBuilderProgram,
-      (diagnostic) => this.writeDiagnostics([diagnostic]),
+      (diagnostic) => this.writeDiagnostics([diagnostic], sourceRoot),
       (...args) => this.reportWatchStatus(...args)
     );
 
     watchHost.afterProgramCreate = (program) => {
-      this.emitAllAffectedFiles(program, cache, buildInfoFile);
+      this.emitAllAffectedFiles(program, cache, buildInfoFile, sourceRoot);
     };
 
     const watch = ts.createWatchProgram(watchHost);
@@ -395,7 +392,10 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     }
   }
 
-  writeDiagnostics(diagnostics: ReadonlyArray<ts.Diagnostic>) {
+  writeDiagnostics(
+    diagnostics: ReadonlyArray<ts.Diagnostic>,
+    sourceRoot: string | undefined
+  ) {
     diagnostics.forEach((diagnostic) => {
       if (diagnostic.file) {
         let { line, character } = diagnostic.file.getLineAndCharacterOfPosition(
@@ -407,9 +407,10 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
         );
         this.writeDiagnosticMessage(
           diagnostic,
-          `${getRelativeFileName(diagnostic.file.fileName)} (${line + 1},${
-            character + 1
-          }): ${message}`
+          `${getRelativeFileName(
+            diagnostic.file.fileName,
+            sourceRoot ?? ""
+          )} (${line + 1},${character + 1}): ${message}`
         );
       } else {
         this.writeDiagnosticMessage(diagnostic);
@@ -622,15 +623,15 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     }
 
     const firstInput = inputFiles[0];
+    const sourceRoot =
+      firstInput.getSourceRoot(false) || ts.sys.getCurrentDirectory();
     info(
       `Typescript processing requested for ${firstInput.getArch()} using Typescript ${
         ts.version
       }`
     );
 
-    const { watch, buildInfoFile, cache } = this.getWatcherFor(
-      ts.sys.getCurrentDirectory()
-    );
+    const { watch, buildInfoFile, cache } = this.getWatcherFor(sourceRoot);
     // This both produces all dirty files and provides us an instance to emit ad-hoc in case a file went missing
     const program = watch.getProgram();
 
