@@ -317,9 +317,22 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     }
 
     // Important to make these paths absolute, see https://github.com/microsoft/TypeScript/issues/41690
-    const rootOutDir = ts.sys.resolvePath(`${this.cacheRoot}/v2cache`);
+    // In "meteor test" mode. to not have simultanenous builds overwrite each other’s build files,
+    // cacheRoot will be a temporary folder where .meteor/local/plugin-cache and some other dirs are symlinked in,
+    // but Typescript wants the buildInfo file and outDir to be in a stable location relative the source dir
+    // so get us back to the source dir version of the directory (it’s the same content, just symlinked so no harm done)
+    // see tools/cli/commands.js for details
+    const cacheRootRelativeSource = this.cacheRoot.substring(
+      this.cacheRoot.indexOf("/.meteor/local")
+    );
+
+    const rootOutDir = ts.sys.resolvePath(
+      `${sourceRoot}${cacheRootRelativeSource}/v2cache`
+    );
+
     const outDir = `${rootOutDir}/out`;
     const buildInfoFile = `${rootOutDir}/buildfile.tsbuildinfo`;
+    info(`buildInfoFile path: ${buildInfoFile}`);
     const cache = new CompilerCache(outDir);
     const optionsToExtend: ts.CompilerOptions = {
       incremental: true,
@@ -631,7 +644,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
       }`
     );
 
-    const { watch, buildInfoFile, cache } = this.getWatcherFor(sourceRoot);
+    const { watch, cache } = this.getWatcherFor(sourceRoot);
     // This both produces all dirty files and provides us an instance to emit ad-hoc in case a file went missing
     const program = watch.getProgram();
 
