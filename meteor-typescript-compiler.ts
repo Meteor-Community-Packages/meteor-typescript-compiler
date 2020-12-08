@@ -332,7 +332,6 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
 
     const outDir = `${rootOutDir}/out`;
     const buildInfoFile = `${rootOutDir}/buildfile.tsbuildinfo`;
-    info(`buildInfoFile path: ${buildInfoFile}`);
     const cache = new CompilerCache(outDir);
     const optionsToExtend: ts.CompilerOptions = {
       incremental: true,
