@@ -1,7 +1,5 @@
 import * as ts from "typescript";
-import * as crypto from "crypto";
 import { bold, dim, reset } from "chalk";
-import { emit, emitWarning } from "process";
 
 /**
  * compiler-console (could not figure out how to load from separate file/module)
@@ -576,7 +574,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
           error(`Nothing emitted for ${inputFilePath}`);
           return {};
         }
-        const { data, fileName, sourceMap } = emitResult;
+        const { data, sourceMap } = emitResult;
         // To get Babel processing, we must invoke it ourselves via the
         // inherited BabelCompiler method processOneFileForTarget
         // To get the source map injected we override inferExtraBabelOptions
