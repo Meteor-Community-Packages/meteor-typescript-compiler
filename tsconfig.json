@@ -5,6 +5,7 @@
     "strictNullChecks": true,
     "types": ["node"],
     "baseUrl": ".",
+    "lib": ["ES2015"],
     "paths": { "*": ["*", ".npm/package/node_modules/*"] },
     "typeRoots": ["./.npm/package/node_modules/@types"]
   }
