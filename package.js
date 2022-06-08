@@ -1,8 +1,8 @@
 /**
  * Match these with the versions in the meteor-typescript/package.js
  */
-const COMPILER_VERSION = "0.3.8";
-const TYPESCRIPT_VERSION = "4.6.2";
+const COMPILER_VERSION = "0.3.9";
+const TYPESCRIPT_VERSION = "4.7.3";
 
 Package.describe({
   name: "refapp:meteor-typescript-compiler",
