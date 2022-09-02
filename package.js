@@ -19,7 +19,7 @@ Npm.depends({
 });
 
 Package.onUse(function (api) {
-  api.versionsFrom("1.10");
+  api.versionsFrom("2.6.1");
   api.use(["babel-compiler"], "server");
   api.use(["typescript@3.0.0||4.0.0"], "server"); // For compiling this package
   api.addFiles(["meteor-typescript-compiler.ts"], "server");
