@@ -1,7 +1,7 @@
 /**
  * Match these with the versions in the meteor-typescript/package.js
  */
-const COMPILER_VERSION = "0.3.14";
+const COMPILER_VERSION = "0.3.15";
 const TYPESCRIPT_VERSION = "5.0.2";
 
 Package.describe({
@@ -13,8 +13,8 @@ Package.describe({
 });
 
 Npm.depends({
-  typescript: TYPESCRIPT_VERSION,
-  chalk: "4.0.0",
+  "typescript": TYPESCRIPT_VERSION,
+  "chalk": "4.0.0",
   "@types/node": "14.0.4",
 });
 

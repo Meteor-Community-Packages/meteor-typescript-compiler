@@ -7,15 +7,25 @@ import { bold, dim, reset } from "chalk";
  */
 
 let traceEnabled = false;
-function shouldFailOnErrors():boolean{
-  const value = process.env.TYPESCRIPT_FAIL_ON_COMPILATION_ERRORS;
+
+/**
+ * @returns undefined if enviroment variable is unset or an empty string,
+ * false if the value is 0 or false and otherwise true
+ */
+function getBooleanEnvironmentVariable(key: string): boolean | undefined {
+  const value = process.env[key]?.toLowerCase();
   if (!value) {
-    return false;
+    return undefined;
   }
-  // 0 and false => false too
-  return !["0","false"].includes(value.toLowerCase());
+  // 0 or false => false
+  return !["0", "false"].includes(value);
 }
-const failOnErrors = shouldFailOnErrors()
+
+const failOnErrors = !!getBooleanEnvironmentVariable(
+  "TYPESCRIPT_FAIL_ON_COMPILATION_ERRORS"
+);
+
+const sourceMapOverride = getBooleanEnvironmentVariable("TYPESCRIPT_SOURCEMAP");
 
 export function setTraceEnabled(enabled: boolean) {
   traceEnabled = enabled;
@@ -79,8 +89,6 @@ interface CacheContainer {
   content: CacheContent;
 }
 
-
-
 /**
  * Stores output from typescript on disk
  */
@@ -125,7 +133,10 @@ export class CompilerCache {
         return { type, content: fileContents };
       }
     }
-    error(`did not find ${path}`);
+    // Not finding sourcemaps is OK, they may be disabled
+    if (type === "js") {
+      error(`did not find ${path}`);
+    }
 
     return undefined;
   }
@@ -179,8 +190,11 @@ function getRelativeFileName(filename: string, sourceRoot: string): string {
   return filename;
 }
 
-function getDiagnosticMessage(diagnostic: ts.Diagnostic,sourceRoot:string|undefined): string {
-  if (diagnostic.file && diagnostic.start !== undefined){
+function getDiagnosticMessage(
+  diagnostic: ts.Diagnostic,
+  sourceRoot: string | undefined
+): string {
+  if (diagnostic.file && diagnostic.start !== undefined) {
     const { line, character } = diagnostic.file.getLineAndCharacterOfPosition(
       diagnostic.start
     );
@@ -189,13 +203,15 @@ function getDiagnosticMessage(diagnostic: ts.Diagnostic,sourceRoot:string|undefi
       "\n"
     );
     return `${getRelativeFileName(
-        diagnostic.file.fileName,
-        sourceRoot ?? ""
-      )} (${line + 1},${character + 1}): ${message}`    
+      diagnostic.file.fileName,
+      sourceRoot ?? ""
+    )} (${line + 1},${character + 1}): ${message}`;
   }
-  return ts.flattenDiagnosticMessageText(diagnostic.messageText,ts.sys.newLine);
+  return ts.flattenDiagnosticMessageText(
+    diagnostic.messageText,
+    ts.sys.newLine
+  );
 }
-
 
 type BuilderProgramType = ts.EmitAndSemanticDiagnosticsBuilderProgram;
 
@@ -322,7 +338,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
         this.numCompiledFiles
       } files were (re)compiled.`
     );
-    return {diagnostics: combinedDiagnostics}
+    return { diagnostics: combinedDiagnostics };
   }
 
   createWatcher(sourceRoot: string): WatcherInstance {
@@ -354,12 +370,17 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     const outDir = `${rootOutDir}/out`;
     const buildInfoFile = `${rootOutDir}/buildfile.tsbuildinfo`;
     const cache = new CompilerCache(outDir);
+    if (sourceMapOverride !== undefined) {
+      info(`Overriding sourceMap setting to ${sourceMapOverride}`);
+    }
     const optionsToExtend: ts.CompilerOptions = {
       incremental: true,
       tsBuildInfoFile: buildInfoFile,
       outDir,
       noEmit: false,
-      sourceMap: true,
+      ...(sourceMapOverride !== undefined
+        ? { sourceMap: sourceMapOverride }
+        : {}),
     };
 
     const watchHost = ts.createWatchCompilerHost(
@@ -374,11 +395,23 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     let diagnostics: ReadonlyArray<ts.Diagnostic> = [];
 
     watchHost.afterProgramCreate = (program) => {
-      ({diagnostics} = this.emitAllAffectedFiles(program, cache, buildInfoFile, sourceRoot));
+      ({ diagnostics } = this.emitAllAffectedFiles(
+        program,
+        cache,
+        buildInfoFile,
+        sourceRoot
+      ));
     };
 
     const watch = ts.createWatchProgram(watchHost);
-    return { buildInfoFile, watch, cache, getLastDiagnostics() { return diagnostics; } };
+    return {
+      buildInfoFile,
+      watch,
+      cache,
+      getLastDiagnostics() {
+        return diagnostics;
+      },
+    };
   }
 
   programFromWatcher({
@@ -412,7 +445,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     this.cacheRoot = path;
   }
 
-  writeDiagnosticMessage(message: string, category:ts.DiagnosticCategory) {
+  writeDiagnosticMessage(message: string, category: ts.DiagnosticCategory) {
     switch (category) {
       case ts.DiagnosticCategory.Error:
         return error(message);
@@ -428,9 +461,9 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     sourceRoot: string | undefined
   ) {
     for (const diagnostic of diagnostics) {
-      const message = getDiagnosticMessage(diagnostic,sourceRoot);
+      const message = getDiagnosticMessage(diagnostic, sourceRoot);
       this.writeDiagnosticMessage(message, diagnostic.category);
-    };
+    }
   }
 
   /**
@@ -564,22 +597,26 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
       trace(`Could not find source file for ${inputFilePath}`);
       return;
     }
-    const errorsForFile = errors.filter(error=>error.file?.fileName===sourceFile.fileName);
+    const errorsForFile = errors.filter(
+      (error) => error.file?.fileName === sourceFile.fileName
+    );
     if (errorsForFile.length > 0) {
-        const sourceRoot = inputFile.getSourceRoot(false);
-        if (failOnErrors) {
-          for (const diagnostic of errorsForFile) {            
-            if (diagnostic.file && diagnostic.start !== undefined) {
-              const { line } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
-              inputFile.error({
-                func: "",
-                line,
-                sourcePath: inputFilePath,
-                message: getDiagnosticMessage(diagnostic, sourceRoot)
-              })
-            }
+      const sourceRoot = inputFile.getSourceRoot(false);
+      if (failOnErrors) {
+        for (const diagnostic of errorsForFile) {
+          if (diagnostic.file && diagnostic.start !== undefined) {
+            const { line } = diagnostic.file.getLineAndCharacterOfPosition(
+              diagnostic.start
+            );
+            inputFile.error({
+              func: "",
+              line,
+              sourcePath: inputFilePath,
+              message: getDiagnosticMessage(diagnostic, sourceRoot),
+            });
           }
         }
+      }
     }
     try {
       const sourcePath = inputFile.getPathInPackage();
@@ -683,7 +720,9 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
         !dirName.startsWith("node_modules/")
       );
     };
-    const errors = getLastDiagnostics().filter(d=>d.category===ts.DiagnosticCategory.Error);
+    const errors = getLastDiagnostics().filter(
+      (d) => d.category === ts.DiagnosticCategory.Error
+    );
     const compilableFiles = inputFiles.filter(isCompilableFile);
     for (const inputFile of compilableFiles) {
       this.emitResultFor(inputFile, program, cache, errors);
