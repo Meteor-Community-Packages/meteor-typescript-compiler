@@ -1,7 +1,7 @@
 /**
  * Match these with the versions in the meteor-typescript/package.js
  */
-const COMPILER_VERSION = "0.3.18";
+const COMPILER_VERSION = "0.4.0-meteor3";
 const TYPESCRIPT_VERSION = "5.3.2";
 
 Package.describe({
@@ -19,7 +19,7 @@ Npm.depends({
 });
 
 Package.onUse(function (api) {
-  api.versionsFrom("1.10");
+  api.versionsFrom(["2.12", "3.0-beta.0"]);
   api.use(["babel-compiler"], "server");
   api.use(["typescript@3.0.0||4.0.0"], "server"); // For compiling this package
   api.addFiles(["meteor-typescript-compiler.ts"], "server");
