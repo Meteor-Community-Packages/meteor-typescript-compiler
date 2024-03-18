@@ -1,8 +1,7 @@
 /**
  * Match these with the versions in the meteor-typescript/package.js
  */
-const METEOR3_BETA_NUMBER = 6;
-const METEOR3_BETA_VERSION = `-beta.${METEOR3_BETA_NUMBER}`;
+const METEOR3_BETA_VERSION = "-beta.6";
 const COMPILER_VERSION = `0.4.0-meteor3${METEOR3_BETA_VERSION}`;
 const TYPESCRIPT_VERSION = "5.3.2";
 
@@ -21,14 +20,7 @@ Npm.depends({
 });
 
 Package.onUse(function (api) {
-  api.versionsFrom([
-    "2.12",
-    ...Array.from({ length: 8 }).map(
-      (e, i) => `3.0${METEOR3_BETA_VERSION + i}`
-    ),
-  ]);
   api.versionsFrom(["2.12", `3.0${METEOR3_BETA_VERSION}`]);
-
   api.use(["babel-compiler"], "server");
   // For compiling this package.
   // Typescript itself does not use semver so the meteor package should *not* follow typescript’s version
