@@ -1,7 +1,7 @@
 /**
  * Match these with the versions in the meteor-typescript/package.js
  */
-const COMPILER_VERSION = "0.5.5-beta31rc0";
+const COMPILER_VERSION = "0.5.5";
 const TYPESCRIPT_VERSION = "5.6.3";
 
 Package.describe({
