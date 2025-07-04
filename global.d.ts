@@ -11,9 +11,17 @@ declare global {
        */
       source: string | undefined
     ): MeteorCompiler.AddJavaScriptOptions;
+
     public inferExtraBabelOptions(
       inputfile: MeteorCompiler.InputFile,
       babelOptions: any,
+      cacheDeps: any
+    ): boolean;
+
+    /** Introduced in Meteor 3.3 and used if "modern" is enabled in package.json */
+    public inferExtraSWCOptions(
+      inputfile: MeteorCompiler.InputFile,
+      swcOptions: any,
       cacheDeps: any
     ): boolean;
 

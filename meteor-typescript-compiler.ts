@@ -244,7 +244,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
 
   /**
    * Used to inject the source map into the babel compilation
-   * through the inferExtraBabelOptions override
+   * through the inferExtraBabelOptions/inferExtraSWCOptions overrides
    */
   private withSourceMap:
     | { sourceMap: MeteorCompiler.SourceMap; pathInPackage: string }
@@ -572,6 +572,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     babelOptions: any,
     cacheDeps: any
   ): boolean {
+    trace("inferExtraBabelOptions invoked");
     if (
       this.withSourceMap &&
       inputfile.getPathInPackage() === this.withSourceMap.pathInPackage
@@ -580,6 +581,24 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
       babelOptions.inputSourceMap = this.withSourceMap.sourceMap;
     }
     return super.inferExtraBabelOptions(inputfile, babelOptions, cacheDeps);
+  }
+
+  public inferExtraSWCOptions(
+    inputfile: MeteorCompiler.InputFile,
+    swcOptions: any,
+    cacheDeps: any
+  ): boolean {
+    trace("inferExtraSWCOptions invoked");
+    if (
+      this.withSourceMap &&
+      inputfile.getPathInPackage() === this.withSourceMap.pathInPackage
+    ) {
+      // Ensure that the Babel compiler picks up our source maps
+      swcOptions.inputSourceMap = this.withSourceMap.sourceMap;
+    }
+    // We can safely invoke inferExtraSWCOptions because if we’re invoked, the method
+    // exists on the base class
+    return super.inferExtraSWCOptions(inputfile, swcOptions, cacheDeps);
   }
 
   emitResultFor(
@@ -637,7 +656,7 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
         const { data, sourceMap } = emitResult;
         // To get Babel processing, we must invoke it ourselves via the
         // inherited BabelCompiler method processOneFileForTarget
-        // To get the source map injected we override inferExtraBabelOptions
+        // To get the source map injected we override inferExtraBabelOptions/inferExtraSWCOptions
         if (sourceMap) {
           this.withSourceMap = {
             sourceMap,
