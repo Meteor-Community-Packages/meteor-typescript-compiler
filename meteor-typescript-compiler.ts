@@ -706,10 +706,24 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
     this.clearStats();
   }
 
+  /**
+   * BabelCompiler as of 3.3 does some setup for each batch but hasn’t exposed
+   * that code for subclasses that perform their own compiling before passing the
+   * source into processOneFileTarget.
+   *
+   * However, by sending in an empty array we can invoke the setup code without actually compiling any sources.
+   *
+   * https://github.com/meteor/meteor/blob/0a3bc8fa566c03267da7376a77a3e62e4dda3b79/packages/babel-compiler/babel-compiler.js#L178
+   */
+  prepareForBatchOfFiles() {
+    super.processFilesForTarget([]);
+  }
+
   processFilesForTarget(inputFiles: MeteorCompiler.InputFile[]) {
     if (inputFiles.length === 0) {
       return;
     }
+    this.prepareForBatchOfFiles();
 
     const firstInput = inputFiles[0];
     const sourceRoot =

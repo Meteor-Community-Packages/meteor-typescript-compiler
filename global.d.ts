@@ -4,6 +4,12 @@ declare global {
   var MeteorTypescriptCompiler: typeof MeteorTypescriptCompilerImpl;
   class BabelCompiler {
     constructor(extraFeatures: MeteorCompiler.BabelFeatures);
+
+    /**
+     * IsoBuild compiler plugin signature
+     */
+    public processFilesForTarget(inputFiles: MeteorCompiler.InputFile[]): void;
+
     public processOneFileForTarget(
       inputfile: MeteorCompiler.InputFile,
       /**
