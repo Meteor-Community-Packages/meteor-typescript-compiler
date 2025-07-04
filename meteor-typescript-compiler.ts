@@ -593,8 +593,10 @@ export class MeteorTypescriptCompilerImpl extends BabelCompiler {
       this.withSourceMap &&
       inputfile.getPathInPackage() === this.withSourceMap.pathInPackage
     ) {
-      // Ensure that the Babel compiler picks up our source maps
-      swcOptions.inputSourceMap = this.withSourceMap.sourceMap;
+      // Ensure that the SWC compiler picks up our source maps
+      // but it seems it must be stringified
+      // https://github.com/swc-project/swc/issues/4578
+      swcOptions.inputSourceMap = JSON.stringify(this.withSourceMap.sourceMap);
     }
     // We can safely invoke inferExtraSWCOptions because if we’re invoked, the method
     // exists on the base class
