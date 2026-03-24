@@ -1,14 +1,15 @@
 /**
  * Match these with the versions in the meteor-typescript/package.js
  */
-const COMPILER_VERSION = "1.0.0";
-const TYPESCRIPT_VERSION = "5.8.2";
+const COMPILER_VERSION = "1.0.1";
+const TYPESCRIPT_VERSION = "6.0.2";
 
 Package.describe({
   name: "refapp:meteor-typescript-compiler",
   version: COMPILER_VERSION,
   summary: "A Typescript compiler plugin for Meteor",
-  git: "https://github.com/Meteor-Community-Packages/meteor-typescript-compiler",
+  git:
+    "https://github.com/Meteor-Community-Packages/meteor-typescript-compiler",
   documentation: "README.md",
 });
 
