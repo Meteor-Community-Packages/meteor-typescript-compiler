@@ -1,7 +1,7 @@
 /**
  * Match these with the versions in the meteor-typescript/package.js
  */
-const COMPILER_VERSION = "1.0.1";
+const COMPILER_VERSION = "1.0.2";
 const TYPESCRIPT_VERSION = "6.0.2";
 
 Package.describe({
@@ -11,6 +11,7 @@ Package.describe({
   git:
     "https://github.com/Meteor-Community-Packages/meteor-typescript-compiler",
   documentation: "README.md",
+  devOnly: true,
 });
 
 Npm.depends({
